@@ -97,7 +97,7 @@ impl<Tree: 'static + MerkleTreeTrait> Sector<Tree> {
 
     pub fn blank_circuit(pub_params: &PublicParams) -> Self {
         let windows = vec![Window::blank_circuit(pub_params); pub_params.num_windows()];
-        let comm_layers = vec![None; pub_params.num_layers];
+        let comm_layers = vec![None; pub_params.num_layers - 1];
 
         Sector {
             id: None,
@@ -359,7 +359,7 @@ mod tests {
     use storage_proofs_core::{
         compound_proof::CompoundProof,
         hasher::{Domain, Hasher, PoseidonHasher},
-        merkle::{generate_tree, get_base_tree_count, LCTree, MerkleTreeTrait, OctMerkleTree},
+        merkle::{generate_tree, get_base_tree_count, LCTree, MerkleTreeTrait},
         proof::ProofScheme,
         util::NODE_SIZE,
     };
@@ -395,17 +395,17 @@ mod tests {
     fn metric_nse_window_post_circuit_poseidon() {
         use bellperson::util_cs::bench_cs::BenchCS;
         let params = nse_window::SetupParams {
-            sector_size: 1024 * 1024 * 1024 * 32,
-            window_size: 1024 * 1024 * 32,
+            sector_size: 1024 * 1024 * 1024 * 1024,
+            window_size: 1024 * 1024 * 1024 * 4,
             window_challenge_count: 2,
-            sector_count: 5,
-            num_layers: 4,
+            sector_count: 1,
+            num_layers: 15,
         };
 
-        let pp = NseWindowPoSt::<OctMerkleTree<PoseidonHasher>>::setup(&params).unwrap();
+        let pp = NseWindowPoSt::<LCTree<PoseidonHasher, U8, U4, U0>>::setup(&params).unwrap();
 
         let mut cs = BenchCS::<Bls12>::new();
-        NseWindowPoStCompound::<OctMerkleTree<PoseidonHasher>>::blank_circuit(&pp)
+        NseWindowPoStCompound::<LCTree<PoseidonHasher, U8, U4, U0>>::blank_circuit(&pp)
             .synthesize(&mut cs)
             .unwrap();
 

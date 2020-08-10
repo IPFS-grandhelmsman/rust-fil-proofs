@@ -168,13 +168,13 @@ mod tests {
     use super::*;
 
     use bellperson::util_cs::{metric_cs::MetricCS, test_cs::TestConstraintSystem};
-    use generic_array::typenum::{U0, U2, U4, U8};
+    use generic_array::typenum::{U0, U4, U8};
     use pretty_assertions::assert_eq;
     use rand::SeedableRng;
     use rand_xorshift::XorShiftRng;
     use storage_proofs_core::{
         compound_proof,
-        hasher::{Domain, Hasher, PedersenHasher, PoseidonHasher},
+        hasher::{Domain, Hasher, PoseidonHasher},
         merkle::{generate_tree, get_base_tree_count, LCTree, MerkleTreeTrait},
     };
     use storage_proofs_porep::nse::vanilla::hash_comm_r;
@@ -185,44 +185,20 @@ mod tests {
 
     #[ignore]
     #[test]
-    fn nse_window_post_pedersen_single_partition_matching_base_8() {
-        nse_window_post::<LCTree<PedersenHasher, U8, U0, U0>>(3, 3, 1);
-    }
-
-    #[ignore]
-    #[test]
-    fn nse_window_post_poseidon_single_partition_matching_base_8() {
-        nse_window_post::<LCTree<PoseidonHasher, U8, U0, U0>>(15, 15, 1);
-    }
-
-    #[ignore]
-    #[test]
     fn nse_window_post_poseidon_single_partition_matching_sub_8_4() {
         nse_window_post::<LCTree<PoseidonHasher, U8, U4, U0>>(3, 3, 1);
     }
 
     #[ignore]
     #[test]
-    fn nse_window_post_poseidon_single_partition_matching_top_8_4_2() {
-        nse_window_post::<LCTree<PoseidonHasher, U8, U4, U2>>(3, 3, 1);
+    fn nse_window_post_poseidon_single_partition_smaller_sub_8_4() {
+        nse_window_post::<LCTree<PoseidonHasher, U8, U4, U0>>(2, 3, 1);
     }
 
     #[ignore]
     #[test]
-    fn nse_window_post_poseidon_single_partition_smaller_base_8() {
-        nse_window_post::<LCTree<PoseidonHasher, U8, U0, U0>>(2, 3, 1);
-    }
-
-    #[ignore]
-    #[test]
-    fn nse_window_post_poseidon_two_partitions_matching_base_8() {
-        nse_window_post::<LCTree<PoseidonHasher, U8, U0, U0>>(4, 2, 2);
-    }
-
-    #[ignore]
-    #[test]
-    fn nse_window_post_poseidon_two_partitions_smaller_base_8() {
-        nse_window_post::<LCTree<PoseidonHasher, U8, U0, U0>>(5, 3, 2);
+    fn nse_window_post_poseidon_two_partitions_smaller_sub_8_4() {
+        nse_window_post::<LCTree<PoseidonHasher, U8, U4, U0>>(5, 3, 2);
     }
 
     fn nse_window_post<Tree: 'static + MerkleTreeTrait>(
@@ -234,17 +210,20 @@ mod tests {
     {
         let rng = &mut XorShiftRng::from_seed(crate::TEST_SEED);
 
-        let leaves = 64 * get_base_tree_count::<Tree>();
-        let sector_size = (leaves * NODE_SIZE) as u64;
+        let window_leaves = 64;
+        let num_windows = get_base_tree_count::<Tree>();
+        let leaves = num_windows * window_leaves;
+        let sector_size = leaves * NODE_SIZE;
+        let num_layers = 4;
+        let window_challenge_count = 2;
+
         let randomness = <Tree::Hasher as Hasher>::Domain::random(rng);
         let prover_id = <Tree::Hasher as Hasher>::Domain::random(rng);
-        let window_challenge_count = 2;
-        let num_layers = 4;
 
         let setup_params = compound_proof::SetupParams {
             vanilla_params: nse_window::SetupParams {
                 sector_size: sector_size as u64,
-                window_size: 1024 * 1024,
+                window_size: window_leaves as u64 * NODE_SIZE as u64,
                 window_challenge_count,
                 sector_count,
                 num_layers,
