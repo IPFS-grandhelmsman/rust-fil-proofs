@@ -7,6 +7,7 @@ use paired::bls12_381::{Bls12, Fr};
 use storage_proofs_core::{
     compound_proof::{CircuitComponent, CompoundProof},
     error::Result,
+    gadgets::por::PoRCompound,
     merkle::MerkleTreeTrait,
     parameter_cache::{CacheableParameters, ParameterSetMetadata},
     por,
@@ -41,63 +42,68 @@ impl<'a, Tree: 'static + MerkleTreeTrait>
         pub_params: &<NseWindowPoSt<'a, Tree> as ProofScheme<'a>>::PublicParams,
         partition_k: Option<usize>,
     ) -> Result<Vec<Fr>> {
-        todo!()
-        // let mut inputs = Vec::new();
+        let mut inputs = Vec::new();
 
-        // let por_pub_params = por::PublicParams {
-        //     leaves: (pub_params.sector_size as usize / NODE_SIZE),
-        //     private: true,
-        // };
+        let por_pub_params = por::PublicParams {
+            leaves: (pub_params.sector_size as usize / NODE_SIZE),
+            private: true,
+        };
 
-        // let num_sectors_per_chunk = pub_params.sector_count;
+        let num_sectors_per_chunk = pub_params.sector_count;
 
-        // let partition_index = partition_k.unwrap_or(0);
+        let partition_index = partition_k.unwrap_or(0);
 
-        // let sectors = pub_inputs
-        //     .sectors
-        //     .chunks(num_sectors_per_chunk)
-        //     .nth(partition_index)
-        //     .ok_or_else(|| anyhow!("invalid number of sectors/partition index"))?;
+        let sectors = pub_inputs
+            .sectors
+            .chunks(num_sectors_per_chunk)
+            .nth(partition_index)
+            .ok_or_else(|| anyhow!("invalid number of sectors/partition index"))?;
 
-        // for (i, sector) in sectors.iter().enumerate() {
-        //     // 1. Inputs for verifying comm_r = H(comm_c || comm_r_last)
-        //     inputs.push(sector.comm_r.into());
+        for (i, sector) in sectors.iter().enumerate() {
+            // 1. Inputs for verifying comm_r = H(comm_layer_0 || ..)
+            inputs.push(sector.comm_r.into());
+            inputs.extend(sector.comm_layers.iter().copied().map(Into::into));
 
-        //     // 2. Inputs for verifying inclusion paths
-        //     for n in 0..pub_params.window_challenge_count {
-        //         let challenge_index = ((partition_index * pub_params.sector_count + i)
-        //             * pub_params.window_challenge_count
-        //             + n) as u64;
-        //         let challenged_leaf_start = nse_window::generate_leaf_challenge(
-        //             &pub_params,
-        //             pub_inputs.randomness,
-        //             sector.id.into(),
-        //             challenge_index,
-        //         )?;
+            inputs.push(sector.comm_replica.into());
 
-        //         let por_pub_inputs = por::PublicInputs {
-        //             commitment: None,
-        //             challenge: challenged_leaf_start as usize,
-        //         };
-        //         let por_inputs = PoRCompound::<Tree>::generate_public_inputs(
-        //             &por_pub_inputs,
-        //             &por_pub_params,
-        //             partition_k,
-        //         )?;
+            // 2. Inputs for verifying inclusion paths
+            for window_index in 0..pub_params.num_windows() {
+                for n in 0..pub_params.window_challenge_count {
+                    let challenge_index = ((partition_index * num_sectors_per_chunk + i)
+                        * pub_params.window_challenge_count
+                        + n) as u64;
+                    let challenged_leaf_relative = nse_window::vanilla::generate_leaf_challenge(
+                        pub_params,
+                        pub_inputs.randomness,
+                        sector.id.into(),
+                        window_index as u64,
+                        challenge_index,
+                    )?;
 
-        //         inputs.extend(por_inputs);
-        //     }
-        // }
-        // let num_inputs_per_sector = inputs.len() / sectors.len();
+                    let por_pub_inputs = por::PublicInputs {
+                        commitment: None,
+                        challenge: challenged_leaf_relative as usize,
+                    };
+                    let por_inputs = PoRCompound::<Tree>::generate_public_inputs(
+                        &por_pub_inputs,
+                        &por_pub_params,
+                        partition_k,
+                    )?;
 
-        // // duplicate last one if too little sectors available
-        // while inputs.len() / num_inputs_per_sector < num_sectors_per_chunk {
-        //     let s = inputs[inputs.len() - num_inputs_per_sector..].to_vec();
-        //     inputs.extend_from_slice(&s);
-        // }
-        // assert_eq!(inputs.len(), num_inputs_per_sector * num_sectors_per_chunk);
+                    inputs.extend(por_inputs);
+                }
+            }
+        }
+        let num_inputs_per_sector = inputs.len() / sectors.len();
 
-        // Ok(inputs)
+        // duplicate last one if too little sectors available
+        while inputs.len() / num_inputs_per_sector < num_sectors_per_chunk {
+            let s = inputs[inputs.len() - num_inputs_per_sector..].to_vec();
+            inputs.extend_from_slice(&s);
+        }
+        assert_eq!(inputs.len(), num_inputs_per_sector * num_sectors_per_chunk);
+
+        Ok(inputs)
     }
 
     fn circuit(
@@ -168,7 +174,7 @@ mod tests {
     use rand_xorshift::XorShiftRng;
     use storage_proofs_core::{
         compound_proof,
-        hasher::{Domain, HashFunction, Hasher, PedersenHasher, PoseidonHasher},
+        hasher::{Domain, Hasher, PedersenHasher, PoseidonHasher},
         merkle::{generate_tree, get_base_tree_count, LCTree, MerkleTreeTrait},
     };
     use storage_proofs_porep::nse::vanilla::hash_comm_r;
@@ -269,15 +275,13 @@ mod tests {
             let comm_r: <Tree::Hasher as Hasher>::Domain =
                 hash_comm_r(&comm_layers, comm_replica).into();
 
-            priv_sectors.push(PrivateSector {
-                tree,
-                comm_replica,
-                comm_layers,
-            });
+            priv_sectors.push(PrivateSector { tree });
 
             pub_sectors.push(PublicSector {
                 id: (i as u64).into(),
                 comm_r,
+                comm_layers,
+                comm_replica,
             });
         }
 

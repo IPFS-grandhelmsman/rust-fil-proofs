@@ -82,6 +82,10 @@ pub struct PublicInputs<'a, T: Domain> {
 pub struct PublicSector<T: Domain> {
     pub id: SectorId,
     pub comm_r: T,
+    /// The root of the individual layers.
+    pub comm_layers: Vec<T>,
+    /// The root of the replica layer.
+    pub comm_replica: T,
 }
 
 #[derive(Debug)]
@@ -93,10 +97,6 @@ pub struct PrivateSector<'a, Tree: MerkleTreeTrait> {
         Tree::SubTreeArity,
         Tree::TopTreeArity,
     >,
-    /// The root of the individual layers.
-    pub comm_layers: Vec<<Tree::Hasher as Hasher>::Domain>,
-    /// The root of the replica layer.
-    pub comm_replica: <Tree::Hasher as Hasher>::Domain,
 }
 
 #[derive(Debug)]
@@ -347,7 +347,7 @@ impl<'a, Tree: 'a + MerkleTreeTrait> ProofScheme<'a> for NseWindowPoSt<'a, Tree>
                     })
                     .collect::<Result<Vec<_>>>()?;
 
-                let comm_layers = priv_sector.comm_layers.clone();
+                let comm_layers = pub_sector.comm_layers.clone();
                 ensure!(
                     comm_layers.len() == pub_params.num_layers - 1,
                     "invalid number of layer commitments {} != {}",
@@ -357,7 +357,7 @@ impl<'a, Tree: 'a + MerkleTreeTrait> ProofScheme<'a> for NseWindowPoSt<'a, Tree>
                 proofs.push(SectorProof {
                     inclusion_proofs,
                     comm_layers,
-                    comm_replica: priv_sector.comm_replica,
+                    comm_replica: pub_sector.comm_replica,
                 });
             }
 
@@ -491,10 +491,6 @@ impl<'a, Tree: 'a + MerkleTreeTrait> ProofScheme<'a> for NseWindowPoSt<'a, Tree>
                         let expected_path_length = inclusion_proof
                             .expected_len(pub_params.window_size as usize / NODE_SIZE);
 
-                        dbg!(
-                            &inclusion_proof,
-                            pub_params.window_size as usize / NODE_SIZE
-                        );
                         if expected_path_length != inclusion_proof.path().len() {
                             trace!(
                                 "invalid path length {} != {}",
@@ -598,15 +594,13 @@ mod tests {
             let comm_r: <Tree::Hasher as Hasher>::Domain =
                 hash_comm_r(&comm_layers, comm_replica).into();
 
-            priv_sectors.push(PrivateSector {
-                tree,
-                comm_replica,
-                comm_layers,
-            });
+            priv_sectors.push(PrivateSector { tree });
 
             pub_sectors.push(PublicSector {
                 id: (i as u64).into(),
                 comm_r,
+                comm_layers,
+                comm_replica,
             });
         }
 

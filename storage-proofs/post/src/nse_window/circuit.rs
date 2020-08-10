@@ -1,6 +1,7 @@
 use bellperson::gadgets::num;
 use bellperson::{Circuit, ConstraintSystem, SynthesisError};
 use ff::Field;
+use generic_array::typenum::{Unsigned, U0};
 use neptune::circuit::poseidon_hash;
 use paired::bls12_381::{Bls12, Fr};
 use rayon::prelude::*;
@@ -12,8 +13,8 @@ use storage_proofs_core::{
     gadgets::por::{AuthPath, PoRCircuit},
     gadgets::variables::Root,
     hasher::types::POSEIDON_CONSTANTS_15_BASE,
-    hasher::Hasher,
-    merkle::{MerkleProofTrait, MerkleTreeTrait},
+    hasher::{HashFunction, Hasher},
+    merkle::{MerkleProofTrait, MerkleTreeTrait, MerkleTreeWrapper},
     por, settings,
     util::NODE_SIZE,
 };
@@ -38,7 +39,7 @@ pub struct Sector<Tree: MerkleTreeTrait> {
 pub struct Window<Tree: MerkleTreeTrait> {
     pub root: Option<Fr>,
     pub leafs: Vec<Option<Fr>>,
-    pub paths: Vec<AuthPath<Tree::Hasher, Tree::Arity, Tree::SubTreeArity, Tree::TopTreeArity>>,
+    pub paths: Vec<AuthPath<Tree::Hasher, Tree::Arity, U0, U0>>,
 }
 
 impl<Tree: MerkleTreeTrait> Clone for Window<Tree> {
@@ -136,11 +137,15 @@ impl<Tree: 'static + MerkleTreeTrait> Window<Tree> {
     ) -> Result<(), SynthesisError> {
         let Window { leafs, paths, .. } = self;
 
-        assert_eq!(paths.len(), leafs.len());
+        assert_eq!(
+            paths.len(),
+            leafs.len(),
+            "inconsistent number of leafs and paths"
+        );
 
         // Verify Inclusion Paths
         for (i, (leaf, path)) in leafs.iter().zip(paths.iter()).enumerate() {
-            PoRCircuit::<Tree>::synthesize(
+            PoRCircuit::<MerkleTreeWrapper<Tree::Hasher, Tree::Store, Tree::Arity, U0, U0>>::synthesize(
                 cs.namespace(|| format!("challenge_inclusion_{}", i)),
                 Root::Val(*leaf),
                 path.clone(),
@@ -198,7 +203,7 @@ impl<Tree: 'static + MerkleTreeTrait> Circuit<Bls12> for &Sector<Tree> {
         comm_replica_num.inputize(cs.namespace(|| "comm_replica_input"))?;
 
         // comm_layers only includes the layers that are not the replica, so need to add it here.
-        comm_layers_nums.push(comm_replica_num);
+        comm_layers_nums.push(comm_replica_num.clone());
 
         // Verify equality
         {
@@ -229,15 +234,40 @@ impl<Tree: 'static + MerkleTreeTrait> Circuit<Bls12> for &Sector<Tree> {
                     .ok_or_else(|| SynthesisError::AssignmentMissing)
             })?;
 
-            window_root_num.inputize(cs.namespace(|| "window_root_input"))?;
             window_roots.push(window_root_num);
         }
 
         // Construct Top MerkleTree
-        // TODO
+
+        let mut hashes = window_roots.clone();
+        let mut height = 0;
+        while hashes.len() != 1 {
+            let mut new_hashes = Vec::new();
+            for (j, chunk) in window_roots
+                .chunks_exact(Tree::SubTreeArity::to_usize())
+                .enumerate()
+            {
+                let hash = <Tree::Hasher as Hasher>::Function::hash_multi_leaf_circuit::<
+                    Tree::SubTreeArity,
+                    _,
+                >(
+                    cs.namespace(|| format!("hash_multi_leaf_{}_{}", height, j)),
+                    chunk,
+                    height,
+                )?;
+                new_hashes.push(hash);
+            }
+            hashes = new_hashes;
+            height += 1;
+        }
 
         // Compare comm_replica with constructed version.
-        // TODO:
+        constraint::equal(
+            cs,
+            || "enforce top merkletree",
+            &hashes[0],
+            &comm_replica_num,
+        );
 
         // 3. Verify windows
         for (window_index, window) in windows.iter().enumerate() {
@@ -322,13 +352,13 @@ mod tests {
 
     use bellperson::util_cs::test_cs::TestConstraintSystem;
     use ff::Field;
-    use generic_array::typenum::{U0, U2, U4, U8};
+    use generic_array::typenum::{U0, U4, U8};
     use paired::bls12_381::{Bls12, Fr};
     use rand::SeedableRng;
     use rand_xorshift::XorShiftRng;
     use storage_proofs_core::{
         compound_proof::CompoundProof,
-        hasher::{Domain, HashFunction, Hasher, PedersenHasher, PoseidonHasher},
+        hasher::{Domain, Hasher, PoseidonHasher},
         merkle::{generate_tree, get_base_tree_count, LCTree, MerkleTreeTrait, OctMerkleTree},
         proof::ProofScheme,
         util::NODE_SIZE,
@@ -341,38 +371,23 @@ mod tests {
     use storage_proofs_porep::nse::vanilla::hash_comm_r;
 
     #[test]
-    fn nse_window_post_pedersen_single_partition_matching_base_8() {
-        nse_window_post::<LCTree<PedersenHasher, U8, U0, U0>>(3, 3, 1, 19, 293_439);
-    }
-
-    #[test]
-    fn nse_window_post_poseidon_single_partition_matching_base_8() {
-        nse_window_post::<LCTree<PoseidonHasher, U8, U0, U0>>(3, 3, 1, 19, 16_869);
-    }
-
-    #[test]
     fn nse_window_post_poseidon_single_partition_matching_sub_8_4() {
-        nse_window_post::<LCTree<PoseidonHasher, U8, U4, U0>>(3, 3, 1, 19, 22_674);
+        nse_window_post::<LCTree<PoseidonHasher, U8, U4, U0>>(3, 3, 1, 40, 28_830);
     }
 
     #[test]
-    fn nse_window_post_poseidon_single_partition_matching_top_8_4_2() {
-        nse_window_post::<LCTree<PoseidonHasher, U8, U4, U2>>(3, 3, 1, 19, 27_384);
+    fn nse_window_post_poseidon_single_partition_smaller_sub_8_4() {
+        nse_window_post::<LCTree<PoseidonHasher, U8, U4, U0>>(2, 3, 1, 40, 28_830);
     }
 
     #[test]
-    fn nse_window_post_poseidon_single_partition_smaller_base_8() {
-        nse_window_post::<LCTree<PoseidonHasher, U8, U0, U0>>(2, 3, 1, 19, 16_869);
+    fn nse_window_post_poseidon_two_partitions_matching_sub_8_4() {
+        nse_window_post::<LCTree<PoseidonHasher, U8, U4, U0>>(4, 2, 2, 27, 19_220);
     }
 
     #[test]
-    fn nse_window_post_poseidon_two_partitions_matching_base_8() {
-        nse_window_post::<LCTree<PoseidonHasher, U8, U0, U0>>(4, 2, 2, 13, 11_246);
-    }
-
-    #[test]
-    fn nse_window_post_poseidon_two_partitions_smaller_base_8() {
-        nse_window_post::<LCTree<PoseidonHasher, U8, U0, U0>>(5, 3, 2, 19, 16_869);
+    fn nse_window_post_poseidon_two_partitions_smaller_sub_8_4() {
+        nse_window_post::<LCTree<PoseidonHasher, U8, U4, U0>>(5, 3, 2, 40, 28_830);
     }
 
     #[test]
@@ -408,17 +423,21 @@ mod tests {
     {
         let rng = &mut XorShiftRng::from_seed(crate::TEST_SEED);
 
-        let leaves = 64 * get_base_tree_count::<Tree>();
+        let window_leaves = 64;
+        let num_windows = get_base_tree_count::<Tree>();
+        let leaves = num_windows * window_leaves;
         let sector_size = leaves * NODE_SIZE;
+        let num_layers = 4;
+
         let randomness = <Tree::Hasher as Hasher>::Domain::random(rng);
         let prover_id = <Tree::Hasher as Hasher>::Domain::random(rng);
 
         let pub_params = nse_window::PublicParams {
             sector_size: sector_size as u64,
-            window_size: 1024 * 1024,
+            window_size: window_leaves as u64 * NODE_SIZE as u64,
             window_challenge_count: 2,
             sector_count,
-            num_layers: 4,
+            num_layers,
         };
 
         // Construct and store an MT using a named DiskStore.
@@ -443,14 +462,12 @@ mod tests {
             let comm_r: <Tree::Hasher as Hasher>::Domain =
                 hash_comm_r(&comm_layers[..], comm_replica).into();
 
-            priv_sectors.push(PrivateSector {
-                tree,
-                comm_replica,
-                comm_layers,
-            });
+            priv_sectors.push(PrivateSector { tree });
             pub_sectors.push(PublicSector {
                 id: (i as u64).into(),
                 comm_r,
+                comm_layers,
+                comm_replica,
             });
         }
 
@@ -472,7 +489,7 @@ mod tests {
             partitions,
         )
         .expect("proving failed");
-        assert_eq!(proofs.len(), partitions);
+        assert_eq!(proofs.len(), partitions, "wrong number of proofs");
 
         let is_valid =
             NseWindowPoSt::<Tree>::verify_all_partitions(&pub_params, &pub_inputs, &proofs)
