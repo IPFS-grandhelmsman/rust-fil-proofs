@@ -1,3 +1,5 @@
+use rand::Rng;
+
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::marker::PhantomData;
@@ -310,8 +312,11 @@ impl<'a, Tree: 'static + MerkleTreeTrait, G: 'static + Hasher> StackedDrg<'a, Tr
             None
         };
 
+        let mut rng = rand::thread_rng();
+        let log_id: u64 = rng.gen();
+
         for layer in 1..=layers {
-            info!("generating layer: {}", layer);
+            info!("generating layer: {},{}", layer, log_id);
             if let Some(ref mut cache) = cache {
                 cache.reset()?;
             }

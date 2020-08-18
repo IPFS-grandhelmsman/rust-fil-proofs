@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{ensure, Context, Result};
 use bincode::deserialize;
 use generic_array::typenum::Unsigned;
-use log::{info, trace};
+use log::{error, info, trace};
 use merkletree::store::StoreConfig;
 use storage_proofs::cache_key::CacheKey;
 use storage_proofs::compound_proof::{self, CompoundProof};
@@ -472,17 +472,38 @@ pub fn generate_window_post<Tree: 'static + MerkleTreeTrait>(
 
     let trees: Vec<_> = replicas
         .iter()
-        .map(|(_id, replica)| replica.merkle_tree(post_config.sector_size))
+        .map(|(_id, replica)| {
+            //replica.merkle_tree(post_config.sector_size)
+            let result = replica.merkle_tree(post_config.sector_size);
+            match result {
+                Ok(tree) => return Ok(tree),
+                Err(err) => {
+                    error!("merkel_tree failed from file:{},{}", _id, err);
+                    return Err(err);
+                }
+            };
+        })
         .collect::<Result<_>>()?;
 
     let mut pub_sectors = Vec::with_capacity(sector_count);
     let mut priv_sectors = Vec::with_capacity(sector_count);
 
     for ((sector_id, replica), tree) in replicas.iter().zip(trees.iter()) {
-        let comm_r = replica.safe_comm_r()?;
-        let comm_c = replica.safe_comm_c()?;
-        let comm_r_last = replica.safe_comm_r_last()?;
-
+        //let comm_r = replica.safe_comm_r()?;
+        let comm_r = match replica.safe_comm_r() {
+            Ok(comm_r) => comm_r,
+            Err(err) => panic!("replicas zip:{},{}", sector_id, err),
+        };
+        //let comm_c = replica.safe_comm_c()?;
+        let comm_c = match replica.safe_comm_c() {
+            Ok(comm_c) => comm_c,
+            Err(err) => panic!("replicas zip:{},{}", sector_id, err),
+        };
+        //let comm_r_last = replica.safe_comm_r_last()?;
+        let comm_r_last = match replica.safe_comm_r_last() {
+            Ok(comm_r_last) => comm_r_last,
+            Err(err) => panic!("replicas zip:{},{}", sector_id, err),
+        };
         pub_sectors.push(fallback::PublicSector {
             id: *sector_id,
             comm_r,

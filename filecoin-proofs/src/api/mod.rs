@@ -201,7 +201,7 @@ pub fn generate_piece_commitment<T: std::io::Read>(
     source: T,
     piece_size: UnpaddedBytesAmount,
 ) -> Result<PieceInfo> {
-    info!("generate_piece_commitment:start");
+    //info!("generate_piece_commitment:start");
 
     let result = measure_op(Operation::GeneratePieceCommitment, || {
         ensure_piece_size(piece_size)?;
@@ -218,7 +218,7 @@ pub fn generate_piece_commitment<T: std::io::Read>(
         PieceInfo::new(commitment, piece_size)
     });
 
-    info!("generate_piece_commitment:finish");
+    //info!("generate_piece_commitment:finish");
     result
 }
 

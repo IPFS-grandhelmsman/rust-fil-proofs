@@ -274,7 +274,9 @@ pub fn read_cached_params(cache_entry_path: &PathBuf) -> Result<groth16::MappedP
         let params = Parameters::build_mapped_parameters(cache_entry_path.to_path_buf(), false)?;
         info!("read parameters from cache {:?} ", cache_entry_path);
 
-        Ok(params)
+        let result = Ok(params);
+        info!("read parameters from cache done{:?} ", cache_entry_path);
+        result
     })
 }
 

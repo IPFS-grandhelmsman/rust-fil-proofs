@@ -1,3 +1,5 @@
+use rand::Rng;
+
 use std::fs::{self, metadata, File, OpenOptions};
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
@@ -56,7 +58,7 @@ where
     S: AsRef<Path>,
     T: AsRef<Path>,
 {
-    info!("seal_pre_commit_phase1:start");
+    info!("seal_pre_commit_phase1:start,{}", sector_id);
 
     // Sanity check all input path types.
     ensure!(
@@ -184,7 +186,7 @@ where
         comm_d,
     };
 
-    info!("seal_pre_commit_phase1:finish");
+    info!("seal_pre_commit_phase1:finish,{}", sector_id);
     Ok(out)
 }
 
@@ -199,7 +201,9 @@ where
     R: AsRef<Path>,
     S: AsRef<Path>,
 {
-    info!("seal_pre_commit_phase2:start");
+    let mut rng = rand::thread_rng();
+    let log_id: u64 = rng.gen();
+    info!("seal_pre_commit_phase2:start,{}", log_id);
 
     // Sanity check all input path types.
     ensure!(
@@ -307,7 +311,7 @@ where
 
     let out = SealPreCommitOutput { comm_r, comm_d };
 
-    info!("seal_pre_commit_phase2:finish");
+    info!("seal_pre_commit_phase2:finish,{}", log_id);
     Ok(out)
 }
 
@@ -323,7 +327,7 @@ pub fn seal_commit_phase1<T: AsRef<Path>, Tree: 'static + MerkleTreeTrait>(
     pre_commit: SealPreCommitOutput,
     piece_infos: &[PieceInfo],
 ) -> Result<SealCommitPhase1Output<Tree>> {
-    info!("seal_commit_phase1:start");
+    info!("seal_commit_phase1:start,{}", sector_id);
 
     // Sanity check all input path types.
     ensure!(
@@ -434,7 +438,7 @@ pub fn seal_commit_phase1<T: AsRef<Path>, Tree: 'static + MerkleTreeTrait>(
         ticket,
     };
 
-    info!("seal_commit_phase1:finish");
+    info!("seal_commit_phase1:finish,{}", sector_id);
     Ok(out)
 }
 
@@ -445,7 +449,7 @@ pub fn seal_commit_phase2<Tree: 'static + MerkleTreeTrait>(
     prover_id: ProverId,
     sector_id: SectorId,
 ) -> Result<SealCommitOutput> {
-    info!("seal_commit_phase2:start");
+    info!("seal_commit_phase2:start,{}", sector_id);
 
     let SealCommitPhase1Output {
         vanilla_proofs,
@@ -528,7 +532,7 @@ pub fn seal_commit_phase2<Tree: 'static + MerkleTreeTrait>(
 
     let out = SealCommitOutput { proof: buf };
 
-    info!("seal_commit_phase2:finish");
+    info!("seal_commit_phase2:finish,{}", sector_id);
     Ok(out)
 }
 
