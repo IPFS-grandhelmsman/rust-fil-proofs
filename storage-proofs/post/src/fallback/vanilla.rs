@@ -410,6 +410,7 @@ impl<'a, Tree: 'a + MerkleTreeTrait> ProofScheme<'a> for FallbackPoSt<'a, Tree> 
                     &comm_r_last,
                 )) != AsRef::<[u8]>::as_ref(comm_r)
                 {
+                    error!("comm_r not match:{}", sector_id);
                     return Ok(false);
                 }
 
@@ -432,6 +433,7 @@ impl<'a, Tree: 'a + MerkleTreeTrait> ProofScheme<'a> for FallbackPoSt<'a, Tree> 
 
                     // validate all comm_r_lasts match
                     if inclusion_proof.root() != comm_r_last {
+                        error!("comm_r not match:{}", sector_id);
                         return Ok(false);
                     }
 
@@ -440,10 +442,12 @@ impl<'a, Tree: 'a + MerkleTreeTrait> ProofScheme<'a> for FallbackPoSt<'a, Tree> 
                         inclusion_proof.expected_len(pub_params.sector_size as usize / NODE_SIZE);
 
                     if expected_path_length != inclusion_proof.path().len() {
+                        error!("comm_r not match:{}", sector_id);
                         return Ok(false);
                     }
 
                     if !inclusion_proof.validate(challenged_leaf_start as usize) {
+                        error!("comm_r not match:{}", sector_id);
                         return Ok(false);
                     }
                 }
