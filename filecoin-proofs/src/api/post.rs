@@ -470,6 +470,7 @@ pub fn generate_window_post<Tree: 'static + MerkleTreeTrait>(
         fallback::FallbackPoStCompound::setup(&setup_params)?;
     let groth_params = get_post_params::<Tree>(&post_config)?;
 
+    info!("generate_window_post: merkle_tree start");
     let trees: Vec<_> = replicas
         .iter()
         .map(|(_id, replica)| {
@@ -484,25 +485,27 @@ pub fn generate_window_post<Tree: 'static + MerkleTreeTrait>(
             };
         })
         .collect::<Result<_>>()?;
+    info!("generate_window_post: merkle_tree end");
 
     let mut pub_sectors = Vec::with_capacity(sector_count);
     let mut priv_sectors = Vec::with_capacity(sector_count);
 
+    info!("generate_window_post: replicas zip start");
     for ((sector_id, replica), tree) in replicas.iter().zip(trees.iter()) {
         //let comm_r = replica.safe_comm_r()?;
         let comm_r = match replica.safe_comm_r() {
             Ok(comm_r) => comm_r,
-            Err(err) => panic!("replicas zip:{},{}", sector_id, err),
+            Err(err) => panic!("replica.seal_comm_r:{},{}", sector_id, err),
         };
         //let comm_c = replica.safe_comm_c()?;
         let comm_c = match replica.safe_comm_c() {
             Ok(comm_c) => comm_c,
-            Err(err) => panic!("replicas zip:{},{}", sector_id, err),
+            Err(err) => panic!("replica.save_comm_c:{},{}", sector_id, err),
         };
         //let comm_r_last = replica.safe_comm_r_last()?;
         let comm_r_last = match replica.safe_comm_r_last() {
             Ok(comm_r_last) => comm_r_last,
-            Err(err) => panic!("replicas zip:{},{}", sector_id, err),
+            Err(err) => panic!("replica.safe_comm_r_last:{},{}", sector_id, err),
         };
         pub_sectors.push(fallback::PublicSector {
             id: *sector_id,
@@ -514,6 +517,7 @@ pub fn generate_window_post<Tree: 'static + MerkleTreeTrait>(
             comm_r_last,
         });
     }
+    info!("generate_window_post: replicas zip end");
 
     let pub_inputs = fallback::PublicInputs {
         randomness: randomness_safe,
@@ -526,6 +530,7 @@ pub fn generate_window_post<Tree: 'static + MerkleTreeTrait>(
         sectors: &priv_sectors,
     };
 
+    info!("generate_window_post: FalbackPoStCompound::prove");
     let proof = fallback::FallbackPoStCompound::prove(
         &pub_params,
         &pub_inputs,
